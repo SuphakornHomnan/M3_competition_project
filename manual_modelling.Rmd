@@ -1,0 +1,236 @@
+# Experiment with regression model
+
+## Import packages
+
+```{r}
+library(Mcomp)
+library(forecast)
+```
+
+### Define the particular data
+
+```{r}
+y = M3[[1910]]$x
+
+y_test = M3[[1910]]$xx
+```
+
+## Normalization data
+
+```{r}
+normalize_time_series <- function(ts_data) {
+  min_val <- min(ts_data)
+  max_val <- max(ts_data)
+  normalized_data <- (ts_data - min_val) / (max_val - min_val)
+  return(normalized_data)
+}
+
+y_norm = normalize_time_series(y)
+y_test_norm = normalize_time_series(y_test)
+```
+
+### Implement regression models and find minimum errors
+
+```{r}
+estimate_pool_regression = function(data) {
+  fit1 = tslm(data~1, data) # no trend, no season
+  fit2 = tslm(data~ trend, data) # trend-only, no season
+  fit3 = tslm(data ~ season, data) # no trend, season-only
+  fit4 = tslm(data ~ trend + season, data) # trend and season
+  
+  return (list(fit1, fit2, fit3, fit4))
+}
+
+h = M3[[1910]]$h
+yt = head(y, length(y) - h)
+yv = tail(y, h)
+
+models = estimate_pool_regression(yt)
+nm = length(models)
+MASE = array(NA, length(models))
+
+for (i in 1:nm) {
+  fcs = forecast(models[[i]], h=h)$mean
+  
+  mae <- mean(abs(yv - fcs))
+  
+  # in-sample mean absolute error (in-sample MAE)
+  in_sample_mae <- mean(abs(diff(yt)))
+  
+  # Calculate MASE
+  MASE[i] <- round(mae / in_sample_mae,2)
+}
+
+MASE
+best = which.min(MASE)
+best
+```
+
+## Residuals diagnostics
+
+```{r}
+  regression_fit = tslm(data ~ trend + season, y)
+  summary(regression_fit)
+  
+  # plot residual diagnostic charts
+  plot(x= as.numeric(y), y=as.numeric(regression_fit$residuals),
+       xlab="Value", ylab= "Residuals")
+  abline(h = c(500, -500), col = "blue")
+  hist(regression_fit$residuals, xlab="Residuals", prob=TRUE, 
+       main="Histogram of the residuals")
+  qqnorm(regression_fit$residuals)
+  qqline(regression_fit$residuals, col="red")
+  
+  library(lmtest)
+  dwtest(regression_fit) # p-value < 5%, accept hypothesis 0 (Not-Independance)
+  
+  shapiro.test(regression_fit$residuals) # p-value < 5%, accept hypothesis 0 (Not-normality   )
+
+```
+
+### Implement exponential smoothing models and find minimum errors
+
+```{r}
+time.start = Sys.time()
+models = c("ANN", "AAN", "AAN", "ANA", "AAA", "AAA", "MNN", "MAN", "MAN", "MMN", "MMN", "MNA", "MAA", "MAA", "MNM", "MAM", "MAM", "MMM", "MMM")
+damped = c(F, F, T, F, F, T, F, F, T,F, T, F, F, T, F, F, T, F, T) # origin = last period of train data set
+nm = length(models)
+
+MASE = array(NA,  nm)
+
+  for (i in 1:nm) {
+    fit = ets(yt, model= models[i], damped= damped[i])
+    fcs = forecast(fit, h=h)$mean
+    
+    mae <- mean(abs(yv - fcs))
+  
+    # in-sample mean absolute error (in-sample MAE)
+    in_sample_mae <- mean(abs(diff(yt)))
+    
+    MASE[i] <- round(mae / in_sample_mae,3)
+  }
+
+Sys.time() - time.start
+
+results <- data.frame(models, damped, MASE)
+
+library(dplyr)
+results %>% arrange(MASE)
+# Display the table using knitr::kable
+library(knitr)
+kable(results, caption = "Model Comparison Table")
+best = which.min(MASE)
+best
+
+models[best]
+damped[best]
+
+ets_fit = ets(y, model= models[best], damped= damped[best])
+```
+
+```{r}
+library(smooth)
+ets_smooth_fit1 = es(y, model= "MMM")
+ets_smooth_fit2 = es(y, model= "MAdA")
+ets_smooth_fit3 = es(y, model= "MMN")
+ets_smooth_fit4 = es(y, model= "MAdN")
+
+plot(ets_smooth_fit1)
+plot(ets_smooth_fit2)
+plot(ets_smooth_fit3)
+plot(ets_smooth_fit4)
+```
+
+## ARIMA models
+
+### Explore data with ACF
+
+This section will explore the pattern of the particular time series before finding the best ARIMA model.
+
+```{r}
+y = M3[[1910]]$x
+plot(y, ylab= "Value")
+```
+
+Figure 1: N1910 series monthly industry index.
+
+```{r}
+library(magrittr)
+logy = log(y)
+tsdisplay(y)
+
+y %>%
+  diff(12) %>% diff(1) %>%
+  tsdisplay(main="First and seasonal differences")
+```
+
+Figure 2: ACF and PACF plots of the double differenced (first and seasonal order) N1910 monthly industry index.
+
+```{r}
+library(tseries)
+adf.test(diff(diff(y, 12), 1), alternative = "stationary")
+kpss.test(diff(diff(y, 12), 1))
+
+
+ally <- cbind("Original data" = y,
+              "Seasonal differences" = diff(y, 12),
+              "First & seasonal diffs" = diff(diff(y, 12)))
+#autoplot(ally, facets=TRUE) +
+#  xlab("Time") +
+#  ggtitle("N1910 series monthly industry index")
+```
+
+Figure 3: The differencing process on the N1910 series monthly industry index.
+
+### ARIMA manual modelling
+
+```{r}
+# Prepare arima pool models
+p <- c(0,1,0,2)
+d <- c(1,1,1,1)
+q <- c(1,0,2,0)
+P <- c(0,1,0,1)
+D <- c(1,1,1,1)
+Q <- c(1,0,1,0)
+
+n_models <- 4
+AICc <- array(NA, n_models)
+
+for (m in 1:n_models){
+  fit <- Arima(yt, order=c(p[m],d[m],q[m]), seasonal=c(P[m],D[m],Q[m]))
+  AICc[m] <- round(fit$aicc,2)
+}
+
+bm <- which.min(AICc) # which is the best model?
+arima_fit <- Arima(y, order=c(p[bm],d[bm],q[bm]), seasonal=c(P[bm],D[bm],Q[bm]))
+summary(arima_fit)
+tsdisplay(residuals(arima_fit))
+
+Box.test(residuals(arima_fit), lag=h, fitdf=p[bm]+q[bm]+P[bm]+Q[bm], type= "Ljung-Box")
+```
+
+## Forecasting by three justificated models.
+
+```{r}
+plot(M3[[1910]], main= "Actual data")
+plot(forecast(regression_fit, h=18, level=c(80,90,95,99)), main = "Forecast from trend-seasonality regression model")
+plot(forecast(ets_fit, h=18, level= c(80, 90, 95, 99)))
+plot(forecast(arima_fit, h=18, level= c(80, 90, 95, 99)))
+
+pool_model = list(regression_fit, ets_fit, arima_fit)
+MASE = array(NA, length(pool_model))
+for (i in 1:length(pool_model)) {
+    fcs <- forecast(pool_model[[i]], h=18)$mean
+    
+    mae <- mean(abs(y_test - fcs))
+  
+    # in-sample mean absolute error (in-sample MAE)
+    in_sample_mae <- mean(abs(diff(y)))
+    
+    MASE[i] <- round(mae / in_sample_mae,3)
+}
+
+MASE
+```
+
+-   From these forecasts, around 3% represent an error in the models when compared with the actual data. It is evident that before 1992, there was a significant decrease, and the forecast models consistently provided overestimated values compared to reality. This has been a contributing factor to the drop in accuracy performance part of these models.

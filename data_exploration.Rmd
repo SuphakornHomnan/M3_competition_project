@@ -1,0 +1,99 @@
+# Data exploration
+
+## Import packages
+
+```{r}
+library(Mcomp)
+library(forecast)
+library(fpp)
+library(ggplot2)
+```
+
+## Check data structure
+
+```{r}
+data = M3[[1910]]$x
+str(M3[[1910]])
+```
+
+-   Data type: Time series `trend, seasonality, cycle, reminder`
+
+-   Name time series: **N1910**
+
+-   Type: **Industry** (Monthly) about Glass containers, shipments, and total.
+
+-   In-sample data: 126 samples.
+
+-   Out-of-sample data: 18 samples.
+
+## Statistic test
+
+```{r}
+round(sd(data),2 )  # 513.5035
+summary(data)
+```
+
+### Seasonal decomposition time series (STL)
+
+It is used to identify the trend and season of this data.
+
+```{r}
+lambda = BoxCox.lambda(data, lower=0, upper=1)
+by = BoxCox(data, lambda)
+# t.window = 20, s.window = 5-10
+dy = stl(by, t.window=20, s.window=5)
+plot(dy)
+```
+
+From the figure, it shows that in the beginning to 1985, the trend fell from around 5400 to 4000 (Down-trend, additive seasonality). After that it fluctuated until 1991 (Constant-seasonality).
+
+```{r}
+dya = decompose(data)
+dym = decompose(data, type= "multiplicative")
+
+ya = dya$seasonal + dya$trend
+ym = dym$seasonal * dym$trend
+
+plot(data, main="The both decomposition plots (Additive and Multiplicative)", ylab= "Value")
+lines(ya, col= 'red')
+lines(ym, col= 'blue')
+legend("topright", legend=c("Original Data", "Additive Decomposition", "Multiplicative Decomposition"), 
+       col=c("black", "red", "blue"), lty=1)
+```
+
+Additive and Multiplicative seasonality are quite similar.
+
+```{r}
+ggseasonplot(data, polar=TRUE) + 
+  ggtitle("Polar seasonal plot: Glass containers, shipments, total industries")
+
+ggseasonplot(data) + 
+  ggtitle("Seasonal plot: Glass containers, shipments, total industries")
+
+ggsubseriesplot(data) +
+  ggtitle("Sub-seasonality-series plot: Glass containers, shipments, total industries")
+```
+
+**Season description:**
+
+-   Spring: March, April, May
+
+-   Summer: June, July, August
+
+-   Fall (Autumn): September, October, November
+
+-   Winter: December, January, February
+
+In August, the majority of each data yearly tends to be the highest; even In June 1981, it is the highest value.
+
+In the sub-seasonality plot, it is evident that sales are lowest during the winter season compared to other seasons. Sales increase in the spring, reaching their peak in the summer. Finally, sales decrease in the autumn season.
+
+**Unusual patterns:**
+
+-   In March 1985, there was a significant jump.
+
+-   In June 1985, there was an increase in sales, while the majority of others moved down.
+
+-   In July 1981, there was a decline in sales, while the majority of other entities experienced an increase.
+
+-   In November 1987, there was a rise, in contrast with others.
